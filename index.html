@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>ルーティンチェッカー</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --morning-color: #f59e0b;
+      --evening-color: #6366f1;
+      --done-bg: #f1f5f9;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 16px;
+      max-width: 500px;
+      margin: 0 auto;
+    }
+    header { text-align: center; margin-bottom: 16px; }
+    h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; }
+    .date-display { font-size: 0.85rem; color: var(--text-muted); }
+    .tab-container {
+      display: flex;
+      background: #e2e8f0;
+      border-radius: 12px;
+      padding: 4px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      background: transparent;
+      border-radius: 8px;
+      cursor: pointer;
+      color: var(--text-muted);
+    }
+    .tab-btn.active.morning {
+      background: var(--card-bg);
+      color: var(--morning-color);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    }
+    .tab-btn.active.evening {
+      background: var(--card-bg);
+      color: var(--evening-color);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+    }
+    .progress-wrap {
+      background: var(--border);
+      height: 8px;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+    .progress-bar { height: 100%; width: 0%; background: var(--primary); transition: width 0.3s ease; }
+    .task-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    .task-item {
+      display: flex;
+      align-items: center;
+      background: var(--card-bg);
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+    .task-item.checked { background: var(--done-bg); border-color: #cbd5e1; }
+    .checkbox {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 2px solid #94a3b8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-right: 12px;
+      flex-shrink: 0;
+      background: white;
+    }
+    .task-item.checked .checkbox { background: #10b981; border-color: #10b981; color: white; }
+    .checkbox svg { display: none; width: 14px; height: 14px; stroke-width: 3; }
+    .task-item.checked .checkbox svg { display: block; }
+    .task-content { flex: 1; }
+    .task-text { font-size: 0.95rem; font-weight: 500; }
+    .task-item.checked .task-text { text-decoration: line-through; color: #94a3b8; }
+    .timestamp { font-size: 0.75rem; color: #059669; margin-top: 2px; font-weight: 500; }
+    .btn-delete { background: none; border: none; color: #cbd5e1; padding: 4px; font-size: 1rem; cursor: pointer; }
+    .btn-delete:hover { color: #ef4444; }
+    .add-box { margin-top: 16px; display: flex; gap: 8px; }
+    .add-input {
+      flex: 1;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      font-size: 0.9rem;
+      outline: none;
+    }
+    .add-btn {
+      padding: 10px 16px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .reset-btn-wrap { text-align: center; margin-top: 24px; }
+    .reset-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+      text-decoration: underline;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>始業・終業チェック</h1>
+    <div class="date-display" id="dateDisplay"></div>
+  </header>
+
+  <div class="tab-container">
+    <button class="tab-btn active morning" id="tabMorning" onclick="switchMode('morning')">☀️ 朝の始業</button>
+    <button class="tab-btn" id="tabEvening" onclick="switchMode('evening')">🌙 夜の終業</button>
+  </div>
+
+  <div class="progress-wrap">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+
+  <ul class="task-list" id="taskList"></ul>
+
+  <div class="add-box">
+    <input type="text" id="newTaskInput" class="add-input" placeholder="新しい項目を追加...">
+    <button class="add-btn" onclick="addTask()">追加</button>
+  </div>
+
+  <div class="reset-btn-wrap">
+    <button class="reset-btn" onclick="manualReset()">今日のチェックをすべて未完了に戻す</button>
+  </div>
+
+  <script>
+    const defaultData = {
+      morning: [
+        { id: 1, text: "メール・連絡網の確認", done: false, time: null },
+        { id: 2, text: "本日の予定・スケジュールの確認", done: false, time: null },
+        { id: 3, text: "優先タスク3件の決定", done: false, time: null },
+        { id: 4, text: "作業環境・デスク周りの整頓", done: false, time: null }
+      ],
+      evening: [
+        { id: 101, text: "本日の進捗確認・残タスク整理", done: false, time: null },
+        { id: 102, text: "日報・作業ログの記入", done: false, time: null },
+        { id: 103, text: "明日の最優先タスクのメモ", done: false, time: null },
+        { id: 104, text: "PCシャットダウン・戸締まり", done: false, time: null }
+      ]
+    };
+
+    let currentMode = 'morning';
+    let appData = {};
+
+    function getTodayString() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    }
+
+    function init() {
+      const now = new Date();
+      document.getElementById('dateDisplay').textContent = now.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', weekday: 'short' });
+
+      const savedDate = localStorage.getItem('routine_date');
+      const savedData = localStorage.getItem('routine_tasks');
+      const today = getTodayString();
+
+      appData = savedData ? JSON.parse(savedData) : JSON.parse(JSON.stringify(defaultData));
+
+      if (savedDate !== today) {
+        ['morning', 'evening'].forEach(mode => {
+          appData[mode].forEach(task => { task.done = false; task.time = null; });
+        });
+        localStorage.setItem('routine_date', today);
+        saveData();
+      }
+      render();
+    }
+
+    function switchMode(mode) {
+      currentMode = mode;
+      document.getElementById('tabMorning').className = `tab-btn ${mode === 'morning' ? 'active morning' : ''}`;
+      document.getElementById('tabEvening').className = `tab-btn ${mode === 'evening' ? 'active evening' : ''}`;
+      render();
+    }
+
+    function render() {
+      const listEl = document.getElementById('taskList');
+      listEl.innerHTML = '';
+      const tasks = appData[currentMode] || [];
+
+      tasks.forEach((task, index) => {
+        const li = document.createElement('li');
+        li.className = `task-item ${task.done ? 'checked' : ''}`;
+        li.onclick = (e) => { if (e.target.tagName !== 'BUTTON') toggleTask(index); };
+        li.innerHTML = `
+          <div class="checkbox">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <div class="task-content">
+            <div class="task-text">${escapeHtml(task.text)}</div>
+            ${task.time ? `<div class="timestamp">✓ ${task.time} 完了</div>` : ''}
+          </div>
+          <button class="btn-delete" onclick="deleteTask(${index})">✕</button>
+        `;
+        listEl.appendChild(li);
+      });
+      updateProgress();
+    }
+
+    function toggleTask(index) {
+      const task = appData[currentMode][index];
+      task.done = !task.done;
+      if (task.done) {
+        const now = new Date();
+        task.time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      } else {
+        task.time = null;
+      }
+      saveData();
+      render();
+    }
+
+    function addTask() {
+      const input = document.getElementById('newTaskInput');
+      const text = input.value.trim();
+      if (!text) return;
+      appData[currentMode].push({ id: Date.now(), text: text, done: false, time: null });
+      input.value = '';
+      saveData();
+      render();
+    }
+
+    function deleteTask(index) {
+      if (confirm('この項目を削除しますか？')) {
+        appData[currentMode].splice(index, 1);
+        saveData();
+        render();
+      }
+    }
+
+    function updateProgress() {
+      const tasks = appData[currentMode] || [];
+      const total = tasks.length;
+      const completed = tasks.filter(t => t.done).length;
+      const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+      const bar = document.getElementById('progressBar');
+      bar.style.width = `${pct}%`;
+      bar.style.background = currentMode === 'morning' ? 'var(--morning-color)' : 'var(--evening-color)';
+    }
+
+    function manualReset() {
+      if (confirm('現在のタブのチェック状態をリセットしますか？')) {
+        appData[currentMode].forEach(t => { t.done = false; t.time = null; });
+        saveData();
+        render();
+      }
+    }
+
+    function saveData() {
+      localStorage.setItem('routine_tasks', JSON.stringify(appData));
+      localStorage.setItem('routine_date', getTodayString());
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
