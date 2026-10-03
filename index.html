@@ -106,6 +106,7 @@
       font-size: 0.9rem;
       outline: none;
     }
+    .add-input:focus { border-color: var(--primary); }
     .add-btn {
       padding: 10px 16px;
       background: var(--primary);
@@ -153,7 +154,8 @@
   </div>
 
   <script>
-    const defaultData = {
+    // 初期タスク（初回起動時のみ使用）
+    const initialTasks = {
       morning: [
         { id: 1, text: "セキュリティ解除", done: false, time: null },
         { id: 2, text: "東口電子施錠解除と正面前後入口のサムターン残す", done: false, time: null },
@@ -169,7 +171,8 @@
     };
 
     let currentMode = 'morning';
-    let appData = {};
+    let masterList = {}; // 登録タスク一覧（削除しない限り永続）
+    let dailyStatus = {}; // 日付ごとのチェック状態 { id: { done: bool, time: string } }
 
     function getTodayString() {
       const now = new Date();
@@ -180,19 +183,29 @@
       const now = new Date();
       document.getElementById('dateDisplay').textContent = now.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric', weekday: 'short' });
 
-      const savedDate = localStorage.getItem('routine_date');
-      const savedData = localStorage.getItem('routine_tasks');
-      const today = getTodayString();
+      // 1. タスク一覧の読み込み（追加した項目はずっと保持）
+      const savedMaster = localStorage.getItem('routine_master_tasks');
+      if (savedMaster) {
+        masterList = JSON.parse(savedMaster);
+      } else {
+        masterList = JSON.parse(JSON.stringify(initialTasks));
+        localStorage.setItem('routine_master_tasks', JSON.stringify(masterList));
+      }
 
-      appData = savedData ? JSON.parse(savedData) : JSON.parse(JSON.stringify(defaultData));
+      // 2. 日付チェックと状態の読み込み
+      const today = getTodayString();
+      const savedDate = localStorage.getItem('routine_current_date');
 
       if (savedDate !== today) {
-        ['morning', 'evening'].forEach(mode => {
-          appData[mode].forEach(task => { task.done = false; task.time = null; });
-        });
-        localStorage.setItem('routine_date', today);
-        saveData();
+        // 日付が変わったら完了状態をリセット
+        dailyStatus = {};
+        localStorage.setItem('routine_current_date', today);
+        localStorage.setItem('routine_daily_status', JSON.stringify(dailyStatus));
+      } else {
+        const savedStatus = localStorage.getItem('routine_daily_status');
+        dailyStatus = savedStatus ? JSON.parse(savedStatus) : {};
       }
+
       render();
     }
 
@@ -206,12 +219,16 @@
     function render() {
       const listEl = document.getElementById('taskList');
       listEl.innerHTML = '';
-      const tasks = appData[currentMode] || [];
+      const tasks = masterList[currentMode] || [];
 
-      tasks.forEach((task, index) => {
+      tasks.forEach((task) => {
+        const status = dailyStatus[task.id] || { done: false, time: null };
         const li = document.createElement('li');
-        li.className = `task-item ${task.done ? 'checked' : ''}`;
-        li.onclick = (e) => { if (e.target.tagName !== 'BUTTON') toggleTask(index); };
+        li.className = `task-item ${status.done ? 'checked' : ''}`;
+        li.onclick = (e) => {
+          if (e.target.tagName !== 'BUTTON') toggleTask(task.id);
+        };
+
         li.innerHTML = `
           <div class="checkbox">
             <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -220,25 +237,28 @@
           </div>
           <div class="task-content">
             <div class="task-text">${escapeHtml(task.text)}</div>
-            ${task.time ? `<div class="timestamp">✓ ${task.time} 完了</div>` : ''}
+            ${status.time ? `<div class="timestamp">✓ ${status.time} 完了</div>` : ''}
           </div>
-          <button class="btn-delete" onclick="deleteTask(${index})">✕</button>
+          <button class="btn-delete" onclick="deleteTask(${task.id})" title="削除">✕</button>
         `;
         listEl.appendChild(li);
       });
+
       updateProgress();
     }
 
-    function toggleTask(index) {
-      const task = appData[currentMode][index];
-      task.done = !task.done;
-      if (task.done) {
+    function toggleTask(id) {
+      const current = dailyStatus[id] || { done: false, time: null };
+      const nextDone = !current.done;
+
+      let timeStr = null;
+      if (nextDone) {
         const now = new Date();
-        task.time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      } else {
-        task.time = null;
+        timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       }
-      saveData();
+
+      dailyStatus[id] = { done: nextDone, time: timeStr };
+      localStorage.setItem('routine_daily_status', JSON.stringify(dailyStatus));
       render();
     }
 
@@ -246,41 +266,52 @@
       const input = document.getElementById('newTaskInput');
       const text = input.value.trim();
       if (!text) return;
-      appData[currentMode].push({ id: Date.now(), text: text, done: false, time: null });
+
+      const newTask = {
+        id: Date.now(), // 一意のIDを付与
+        text: text
+      };
+
+      masterList[currentMode].push(newTask);
+      localStorage.setItem('routine_master_tasks', JSON.stringify(masterList));
+
       input.value = '';
-      saveData();
       render();
     }
 
-    function deleteTask(index) {
-      if (confirm('この項目を削除しますか？')) {
-        appData[currentMode].splice(index, 1);
-        saveData();
+    function deleteTask(id) {
+      if (confirm('この項目をリストから削除しますか？')) {
+        masterList[currentMode] = masterList[currentMode].filter(t => t.id !== id);
+        delete dailyStatus[id];
+        localStorage.setItem('routine_master_tasks', JSON.stringify(masterList));
+        localStorage.setItem('routine_daily_status', JSON.stringify(dailyStatus));
         render();
       }
     }
 
     function updateProgress() {
-      const tasks = appData[currentMode] || [];
+      const tasks = masterList[currentMode] || [];
       const total = tasks.length;
-      const completed = tasks.filter(t => t.done).length;
+      const completed = tasks.filter(t => dailyStatus[t.id] && dailyStatus[t.id].done).length;
       const pct = total === 0 ? 0 : Math.round((completed / total) * 100);
+
       const bar = document.getElementById('progressBar');
       bar.style.width = `${pct}%`;
       bar.style.background = currentMode === 'morning' ? 'var(--morning-color)' : 'var(--evening-color)';
     }
 
     function manualReset() {
-      if (confirm('現在のタブのチェック状態をリセットしますか？')) {
-        appData[currentMode].forEach(t => { t.done = false; t.time = null; });
-        saveData();
+      if (confirm('現在のタブのチェック状態を未完了に戻しますか？')) {
+        const tasks = masterList[currentMode] || [];
+        tasks.forEach(t => {
+          if (dailyStatus[t.id]) {
+            dailyStatus[t.id].done = false;
+            dailyStatus[t.id].time = null;
+          }
+        });
+        localStorage.setItem('routine_daily_status', JSON.stringify(dailyStatus));
         render();
       }
-    }
-
-    function saveData() {
-      localStorage.setItem('routine_tasks', JSON.stringify(appData));
-      localStorage.setItem('routine_date', getTodayString());
     }
 
     function escapeHtml(str) {
